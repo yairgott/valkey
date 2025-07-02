@@ -111,7 +111,27 @@ typedef long long ustime_t;
 #define VALKEYMODULE_REPLY_BIG_NUMBER 9
 #define VALKEYMODULE_REPLY_VERBATIM_STRING 10
 #define VALKEYMODULE_REPLY_ATTRIBUTE 11
-#define VALKEYMODULE_REPLY_PROMISE 12
+#define VALKEYMODULE_REPLY_EXTERNELIZE 12 /* New type for ExternelizeString. Represents a module-managed raw buffer. */
+#define VALKEYMODULE_REPLY_PROMISE 13
+
+/* Structure representing an externalized string.
+ * This allows modules to store a char* and length directly in a hash field,
+ * bypassing normal SDS string allocation for the value.
+ * The module using this structure is responsible for the lifetime management
+ * of the memory pointed to by 'buf'. Valkey core will not free 'buf'.
+ * When retrieved via HGET or similar, the value will be represented as a
+ * special string: "[EXT:<pointer_address>:<length>]".
+ * Persistence:
+ * - RDB: The special string "[EXT:...]" is saved. The module must handle
+ *        re-linking the data post-load.
+ * - AOF: The command causing the externalization (e.g., a module command
+ *        like HEXTERNELIZE) is logged. The module must handle re-linking
+ *        data upon AOF replay.
+ */
+typedef struct ValkeyModuleExternelizeString {
+    char *buf;    /* Pointer to the externalized buffer */
+    size_t len;   /* Length of the buffer */
+} ValkeyModuleExternelizeString;
 
 /* Postponed array length. */
 #define VALKEYMODULE_POSTPONED_ARRAY_LEN -1 /* Deprecated, please use VALKEYMODULE_POSTPONED_LEN */
@@ -1317,6 +1337,13 @@ VALKEYMODULE_API int (*ValkeyModule_ReplyWithDouble)(ValkeyModuleCtx *ctx, doubl
 VALKEYMODULE_API int (*ValkeyModule_ReplyWithBigNumber)(ValkeyModuleCtx *ctx,
                                                         const char *bignum,
                                                         size_t len) VALKEYMODULE_ATTR;
+/* Reply to the client with a special string representation of an externalized buffer.
+ * This is primarily for module-to-module communication or for debugging purposes,
+ * as it sends a string like "[EXT:<address>:<length>]" rather than the raw buffer content.
+ * The module is responsible for the lifetime of 'buf'. */
+VALKEYMODULE_API int (*ValkeyModule_ReplyWithExternelize)(ValkeyModuleCtx *ctx,
+                                                          const char *buf,
+                                                          size_t len) VALKEYMODULE_ATTR;
 VALKEYMODULE_API int (*ValkeyModule_ReplyWithCallReply)(ValkeyModuleCtx *ctx,
                                                         ValkeyModuleCallReply *reply) VALKEYMODULE_ATTR;
 VALKEYMODULE_API int (*ValkeyModule_StringToLongLong)(const ValkeyModuleString *str, long long *ll) VALKEYMODULE_ATTR;
@@ -1949,6 +1976,7 @@ static int ValkeyModule_Init(ValkeyModuleCtx *ctx, const char *name, int ver, in
     VALKEYMODULE_GET_API(ReplyWithCallReply);
     VALKEYMODULE_GET_API(ReplyWithDouble);
     VALKEYMODULE_GET_API(ReplyWithBigNumber);
+    VALKEYMODULE_GET_API(ReplyWithExternelize);
     VALKEYMODULE_GET_API(ReplyWithLongDouble);
     VALKEYMODULE_GET_API(GetSelectedDb);
     VALKEYMODULE_GET_API(SelectDb);
