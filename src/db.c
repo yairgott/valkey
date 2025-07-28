@@ -938,6 +938,17 @@ int objectTypeCompare(robj *o, long long target) {
         return 1;
 }
 
+typedef struct {
+    const char *buf;
+    size_t len;
+} scanDataItem;
+
+static void addScanDataItem(vector *result, const char *buf, size_t len) {
+    scanDataItem *item = vectorPush(result);
+    item->buf = buf;
+    item->len = len;
+}
+
 /* Hashtable scan callback used by scanCallback when scanning the keyspace. */
 void keysScanCallback(void *privdata, void *entry) {
     scanData *data = (scanData *)privdata;
@@ -968,15 +979,15 @@ void keysScanCallback(void *privdata, void *entry) {
     }
 
     /* Keep this key. */
-    sds *item = vectorPush(data->result);
-    *item = key;
+    addScanDataItem(data->result, (const char *)key, sdslen(key));
 }
 
 /* This callback is used by scanGenericCommand in order to collect elements
  * returned by the dictionary iterator into a list. */
 void hashtableScanCallback(void *privdata, void *entry) {
     scanData *data = (scanData *)privdata;
-    sds val = NULL;
+    const char *val = NULL;
+    size_t val_len = 0;
     sds key = NULL;
 
     robj *o = data->o;
@@ -996,7 +1007,7 @@ void hashtableScanCallback(void *privdata, void *entry) {
     } else if (o->type == OBJ_HASH) {
         key = entryGetField(entry);
         if (!data->only_keys) {
-            val = entryGetValue(entry);
+            val = entryGetValue(entry, &val_len);
         }
     } else {
         serverPanic("Type not handled in hashtable SCAN callback.");
@@ -1017,16 +1028,14 @@ void hashtableScanCallback(void *privdata, void *entry) {
         key = sdsdup(node->ele);
         if (!data->only_keys) {
             char buf[MAX_LONG_DOUBLE_CHARS];
-            int len = ld2string(buf, sizeof(buf), node->score, LD_STR_AUTO);
-            val = sdsnewlen(buf, len);
+            val_len = ld2string(buf, sizeof(buf), node->score, LD_STR_AUTO);
+            val = (const char *)sdsnewlen(buf, val_len);
         }
     }
 
-    sds *item = vectorPush(data->result);
-    *item = key;
+    addScanDataItem(data->result, (const char *)key, sdslen(key));
     if (val) {
-        item = vectorPush(data->result);
-        *item = val;
+        addScanDataItem(data->result, val, sdslen(val));
     }
 }
 
@@ -1181,7 +1190,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         /* scanning ZSET allocates temporary strings even though it's a dict */
         free_callback = sdsfree;
     }
-    vectorInit(&result, SCAN_VECTOR_INITIAL_ALLOC, sizeof(sds));
+    vectorInit(&result, SCAN_VECTOR_INITIAL_ALLOC, sizeof(scanDataItem));
 
     /* For main hash table scan or scannable data structure. */
     if (!o || ht) {
@@ -1242,8 +1251,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             if (use_pattern && !stringmatchlen(pat, sdslen(pat), key, len, 0)) {
                 continue;
             }
-            sds *item = vectorPush(&result);
-            *item = sdsnewlen(key, len);
+            sds item = sdsnewlen(key, len);
+            addScanDataItem(&result, (const char *)item, sdslen(item));
         }
         setTypeReleaseIterator(si);
         cursor = 0;
@@ -1263,13 +1272,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
                 continue;
             }
             /* add key object */
-            sds *item = vectorPush(&result);
-            *item = sdsnewlen(str, len);
+            sds item = sdsnewlen(str, len);
+            addScanDataItem(&result, (const char *)item, sdslen(item));
             /* add value object */
             if (!only_keys) {
                 str = lpGet(p, &len, intbuf);
-                item = vectorPush(&result);
-                *item = sdsnewlen(str, len);
+                item = sdsnewlen(str, len);
+                addScanDataItem(&result, (const char *)item, sdslen(item));
             }
             p = lpNext(o->ptr, p);
         }
@@ -1284,10 +1293,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
 
     addReplyArrayLen(c, vectorLen(&result));
     for (uint32_t i = 0; i < vectorLen(&result); i++) {
-        sds *key = vectorGet(&result, i);
-        addReplyBulkCBuffer(c, *key, sdslen(*key));
+        scanDataItem *key = vectorGet(&result, i);
+        addReplyBulkCBuffer(c, key->buf, key->len);
         if (free_callback) {
-            free_callback(*key);
+            free_callback((sds)(key->buf));
         }
     }
 
