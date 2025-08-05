@@ -100,7 +100,7 @@ entry *createStringViewEntry(sds field, const char *buf, size_t len) {
     sds embedded_field_sds = sdswrite(alloc_buf + sizeof(void *), field_size, field_sds_type, field, field_len);
 
     sdsSetAuxBit(embedded_field_sds, FIELD_SDS_AUX_BIT_ENTRY_HAS_VALUE_PTR, 1); // It's a value pointer
-    sdsSetAuxBit(embedded_field_sds, FIELD_SDS_AUX_BIT_VIEW_VALUE, 1);        // Mark as view value
+    sdsSetAuxBit(embedded_field_sds, FIELD_SDS_AUX_BIT_VIEW_VALUE, 1);          // Mark as view value
     serverAssert(entryHasValuePtr(embedded_field_sds));
     serverAssert(entryIsStringViewValue(embedded_field_sds));
 
@@ -159,7 +159,7 @@ void *entryGetAllocPtr(const entry *entry) {
     if (entryIsStringViewValue(entry)) {
         buf -= sizeof(StringViewValue **);
     } else if (entryHasValuePtr(entry)) {
-      buf -= sizeof(sds *);
+        buf -= sizeof(sds *);
     }
     if (entryHasExpiry(entry)) buf -= sizeof(long long);
     return buf;
@@ -206,7 +206,7 @@ bool entryIsExpired(entry *entry) {
 /**************************************** Entry Expiry API - End *****************************************/
 
 void entryFree(entry *entry) {
-  if (entryIsStringViewValue(entry)) {
+    if (entryIsStringViewValue(entry)) {
         StringViewValue *ext_value = getViewValueRef(entry);
         zfree(ext_value);
     } else if (entryHasValuePtr(entry)) {
@@ -329,9 +329,9 @@ entry *entryUpdate(entry *e, sds value, long long expiry) {
         return e;
     size_t value_len = SIZE_MAX;
     if (value) {
-      value_len = sdslen(value);
+        value_len = sdslen(value);
     } else {
-      value = entryGetValue(e, &value_len);
+        value = entryGetValue(e, &value_len);
     }
     bool embed_value = false;
     int embedded_field_sds_type;
@@ -410,7 +410,6 @@ entry *entryUpdate(entry *e, sds value, long long expiry) {
 /* Returns memory usage of a entry, including all allocations owned by
  * the entry. */
 size_t entryMemUsage(entry *entry) {
-
     if (entryIsStringViewValue(entry)) {
         size_t mem = zmalloc_usable_size(entryGetAllocPtr(entry));
         StringViewValue *ext_value = getViewValueRef(entry);

@@ -329,7 +329,7 @@ int hashTypeSetValueView(robj *o, sds field, const char *buf, size_t len) {
     }
     if (entryIsStringViewValue(existing)) {
         StringViewValue *ext_value = getViewValueRef(existing);
-        ext_value->buf =(char *)buf;
+        ext_value->buf = (char *)buf;
         ext_value->len = len;
         return 1;
     }
