@@ -216,7 +216,7 @@ void entryFree(entry *entry) {
     zfree(entryGetAllocPtr(entry));
 }
 
-static inline size_t entryReqSize(const_sds field,
+static inline size_t entryReqSize(size_t field_len,
                                   size_t value_len,
                                   long long expiry,
                                   bool *is_value_embedded,
@@ -225,16 +225,15 @@ static inline size_t entryReqSize(const_sds field,
                                   size_t *expiry_size,
                                   size_t *embedded_value_size) {
     size_t expiry_alloc_size = (expiry == EXPIRY_NONE) ? 0 : sizeof(long long);
-    size_t field_len = sdslen(field);
     int embedded_field_sds_type = sdsReqType(field_len);
     if (embedded_field_sds_type == SDS_TYPE_5 && (expiry_alloc_size > 0)) {
         embedded_field_sds_type = SDS_TYPE_8;
     }
     size_t field_alloc_size = sdsReqSize(field_len, embedded_field_sds_type);
-    size_t embedded_value_alloc_size = value_len > 0 ? sdsReqSize(value_len, SDS_TYPE_8) : 0;
+    size_t embedded_value_alloc_size = value_len != SIZE_MAX ? sdsReqSize(value_len, SDS_TYPE_8) : 0;
     size_t alloc_size = field_alloc_size + expiry_alloc_size;
     bool embed_value = false;
-    if (value_len) {
+    if (value_len != SIZE_MAX) {
         if (alloc_size + embedded_value_alloc_size <= EMBED_VALUE_MAX_ALLOC_SIZE) {
             /* Embed field and value. Value is fixed to SDS_TYPE_8. Unused
              * allocation space is recorded in the embedded value's SDS header.
@@ -279,8 +278,8 @@ entry *entryCreate(const char *field, size_t field_len, sds value, long long exp
     bool embed_value = false;
     int embedded_field_sds_type;
     size_t expiry_size, embedded_value_sds_size, embedded_field_sds_size;
-    size_t value_len = value ? sdslen(value) : 0;
-    size_t alloc_size = entryReqSize(field, value_len, expiry, &embed_value, &embedded_field_sds_type, &embedded_field_sds_size, &expiry_size, &embedded_value_sds_size);
+    size_t value_len = value ? sdslen(value) : SIZE_MAX;
+    size_t alloc_size = entryReqSize(field_len, value_len, expiry, &embed_value, &embedded_field_sds_type, &embedded_field_sds_size, &expiry_size, &embedded_value_sds_size);
     size_t buf_size;
 
     /* allocate the buffer */
@@ -328,12 +327,16 @@ entry *entryUpdate(entry *e, sds value, long long expiry) {
     /* Just a sanity check. If nothing changes, lets just return */
     if (!update_value && !update_expiry)
         return e;
-    size_t value_len = 0;
-    if (!value) value = entryGetValue(e, &value_len);
+    size_t value_len = SIZE_MAX;
+    if (value) {
+      value_len = sdslen(value);
+    } else {
+      value = entryGetValue(e, &value_len);
+    }
     bool embed_value = false;
     int embedded_field_sds_type;
     size_t expiry_size, embedded_value_size, embedded_field_size;
-    size_t required_embedded_size = entryReqSize(field, value_len, expiry, &embed_value, &embedded_field_sds_type, &embedded_field_size, &expiry_size, &embedded_value_size);
+    size_t required_embedded_size = entryReqSize(sdslen(field), value_len, expiry, &embed_value, &embedded_field_sds_type, &embedded_field_size, &expiry_size, &embedded_value_size);
     size_t current_embedded_allocation_size = entryHasValuePtr(e) ? 0 : entryMemUsage(e);
 
     bool expiry_add_remove = update_expiry && (curr_expiration_time == EXPIRY_NONE || expiry == EXPIRY_NONE); // In case we are toggling expiration
